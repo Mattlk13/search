@@ -1,0 +1,13 @@
+[project]
+name = "simple-search"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "datasets>=4.4.1",
+    "pandas>=2.3.3",
+    "pyvespa>=0.62.0",
+    "fastapi>=0.111.0",
+    "uvicorn>=0.30.0",
+]
