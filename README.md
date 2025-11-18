@@ -11,6 +11,10 @@ This is a multi-part tutorial series:
 - More coming soon
 
 
+Something you dont understand? You have a request? Please create a github issue `:)
+`
+
+
 ## Prerequisites
 
 - Python 3.10 or higher

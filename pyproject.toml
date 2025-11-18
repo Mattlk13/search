@@ -1,7 +1,7 @@
 [project]
-name = "simple-search"
+name = "search"
 version = "0.1.0"
-description = "Add your description here"
+description = "building a search engine over custom data using Vespa"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

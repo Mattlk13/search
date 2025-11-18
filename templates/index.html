@@ -1,47 +1,35 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Simple Search UI</title>
-    <link rel="stylesheet" href="/static/styles.css" />
-  </head>
-  <body>
-    <div class="page">
-      <header>
-        <h1>Simple Search</h1>
-        <p>Lightweight Vespa explorer with instant relevance feedback.</p>
-      </header>
-      <section class="search-panel">
-        <form id="search-form">
-          <input
-            id="query"
-            type="search"
-            placeholder="Search the web-scale corpus…"
-            autocomplete="off"
-            autofocus
-            required
-          />
-          <label class="limit-control">
-            <span>Max results</span>
-            <input
-              id="limit"
-              type="number"
-              name="limit"
-              min="1"
-              max="{{ max_limit }}"
-              step="1"
-              inputmode="numeric"
-              value="{{ default_limit }}"
-              title="1–{{ max_limit }} results"
-            />
-          </label>
-          <button type="submit" id="search-button">Search</button>
-        </form>
-        <div class="status" id="status"></div>
-      </section>
-      <section class="results" id="results"></section>
-    </div>
-    <script defer src="/static/app.js"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simple Search UI</title>
+  <link rel="stylesheet" href="/static/styles.css?v=1" />
+</head>
+
+<body>
+  <div class="page">
+    <header>
+      <h1>Simple Search</h1>
+      <p>Search the documents you indexed with Vespa.</p>
+    </header>
+    <section class="search-panel">
+      <form id="search-form">
+        <input id="query" type="search" placeholder="Find pages, snippets, or URLs" autocomplete="off" autofocus
+          required />
+        <label class="limit-control">
+          <span>Max results</span>
+          <input id="limit" type="number" name="limit" min="1" max="{{ max_limit }}" step="1" inputmode="numeric"
+            value="{{ default_limit }}" title="1–{{ max_limit }} results" />
+        </label>
+        <button type="submit" id="search-button">Search</button>
+      </form>
+      <div class="status" id="status"></div>
+    </section>
+    <section class="results" id="results"></section>
+  </div>
+  <script defer src="/static/app.js"></script>
+</body>
+
 </html>
