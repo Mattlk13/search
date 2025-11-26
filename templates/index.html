@@ -11,19 +11,19 @@
 <body>
   <div class="page">
     <header>
-      <h1>Simple Search</h1>
-      <p>Search the documents you indexed with Vespa.</p>
+      <h1>Hybrid Search</h1>
+      <p>Semantic + lexical ranking over your Vespa index.</p>
     </header>
     <section class="search-panel">
       <form id="search-form">
         <div class="search-row">
-          <input id="query" type="search" placeholder="Find pages, snippets, or URLs" autocomplete="off" autofocus
+          <input id="query" type="search" placeholder="Ask a question or enter keywords" autocomplete="off" autofocus
             required />
           <button type="submit" id="search-button">Search</button>
         </div>
         <div class="settings-row">
           <label class="field-control" for="ranking">
-            <span>Ranking profile</span>
+            <span>Ranking mode</span>
             <select id="ranking" name="ranking">
               {% for profile in ranking_profiles %}
               <option value="{{ profile.value }}" {% if profile.value == default_ranking_profile %}selected{% endif %}>

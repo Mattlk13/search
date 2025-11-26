@@ -96,7 +96,3 @@ package = ApplicationPackage(
         ),
     ],
 )
-
-vespa_docker = VespaDocker()
-app = vespa_docker.deploy(application_package=package)
-package.to_files(root="./vespa_app")

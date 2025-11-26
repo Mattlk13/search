@@ -6,6 +6,8 @@ from vespa.package import (
     Function,
     RankProfile,
     Schema,
+    HNSW,
+    GlobalPhaseRanking,
 )
 from vespa.deployment import VespaDocker
 from vespa.io import VespaResponse
@@ -13,7 +15,7 @@ from datasets import load_dataset
 from tqdm import tqdm
 
 package = ApplicationPackage(
-    name="simplesearch",
+    name="hybridsearch",
     schema=[
         Schema(
             name="doc",
@@ -36,6 +38,12 @@ package = ApplicationPackage(
                         indexing=["index", "summary"],
                         index="enable-bm25",
                     ),
+                    Field(
+                        name="text_embedding",
+                        type="tensor(x[384])",
+                        indexing=["index", "attribute"],
+                        ann=HNSW(distance_metric="angular"),
+                    ),
                 ]
             ),
             fieldsets=[
@@ -44,6 +52,7 @@ package = ApplicationPackage(
             rank_profiles=[
                 RankProfile(
                     name="bm25",
+                    inputs=[("query(q)",)],
                     functions=[
                         Function(
                             name="bm25texturl",
@@ -51,46 +60,23 @@ package = ApplicationPackage(
                         ),
                     ],
                     first_phase="bm25texturl",
-                )
+                ),
+                RankProfile(
+                    name="semantic",
+                    inputs=[("query(q)", "tensor(x[384])")],
+                    first_phase="closeness(field, text_embedding)",
+                ),
+                RankProfile(
+                    name="fusion",
+                    inherits="bm25",
+                    inputs=[("query(q)", "tensor(x[384])")],
+                    first_phase="closeness(field, text_embedding)",
+                    global_phase=GlobalPhaseRanking(
+                        expression="reciprocal_rank_fusion(bm25texturl, closeness(field, text_embedding))",
+                        rerank_count=1000,
+                    ),
+                ),
             ],
         ),
     ],
 )
-
-vespa_docker = VespaDocker()
-app = vespa_docker.deploy(application_package=package)
-
-dataset = load_dataset(
-    "HuggingFaceFW/fineweb",
-    "CC-MAIN-2025-05",
-    split="train",
-    streaming=True,
-)
-vespa_feed = dataset.map(
-    lambda x: {
-        "id": x["id"],
-        "fields": {
-            "text": x["text"],
-            "url": x["url"],
-            "id": x["id"],
-        },
-    }
-)
-
-pbar = tqdm(desc="Feeding documents", unit="docs")
-feed_count = {"success": 0, "error": 0}
-
-
-def callback(response: VespaResponse, id: str):
-    if response.is_successful():
-        feed_count["success"] += 1
-    else:
-        feed_count["error"] += 1
-        pbar.write(f"Error when feeding document {id}: {response.get_json()}")
-    pbar.update(1)
-
-
-app.feed_iterable(
-    vespa_feed, schema="doc", callback=callback, max_workers=4, max_connections=4
-)
-pbar.close()

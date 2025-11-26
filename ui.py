@@ -13,7 +13,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from vespa.application import Vespa
+from sentence_transformers import SentenceTransformer
+from vespa.application import Vespa, VespaSync
 
 
 class SearchRequest(BaseModel):
@@ -25,19 +26,25 @@ class SearchRequest(BaseModel):
 RESULT_LIMIT = int(os.getenv("VESPA_RESULT_LIMIT", "10"))
 MAX_RESULT_LIMIT = int(os.getenv("VESPA_MAX_RESULT_LIMIT", "100"))
 MIN_RESULT_LIMIT = 1
-DEFAULT_RANKING_PROFILE = os.getenv("VESPA_DEFAULT_RANKING", "bm25")
 RANKING_PROFILES = [
-    {"value": "bm25", "label": "bm25 (text + url default)"},
-    {"value": "bm25_text_only", "label": "bm25_text_only (text field only)"},
-    {"value": "bm25_url_only", "label": "bm25_url_only (url field only)"},
-    {"value": "bm25_comb_tuned", "label": "bm25_comb_tuned (custom bm25 constants)"},
+    {"value": "fusion", "label": "fusion (hybrid: semantic + bm25)"},
+    {"value": "semantic", "label": "semantic (dense vector only)"},
+    {"value": "bm25", "label": "bm25 (lexical only)"},
 ]
-_KNOWN_RANKING_VALUES = {profile["value"] for profile in RANKING_PROFILES}
-if DEFAULT_RANKING_PROFILE not in _KNOWN_RANKING_VALUES:
+DEFAULT_RANKING_PROFILE = os.getenv(
+    "VESPA_DEFAULT_RANKING", RANKING_PROFILES[0]["value"]
+)
+KNOWN_RANKING_VALUES = {profile["value"] for profile in RANKING_PROFILES}
+if DEFAULT_RANKING_PROFILE not in KNOWN_RANKING_VALUES:
     DEFAULT_RANKING_PROFILE = RANKING_PROFILES[0]["value"]
-del _KNOWN_RANKING_VALUES
+RANKINGS_REQUIRING_EMBEDDING = {"fusion", "semantic"}
+ANN_TARGET_HITS = int(os.getenv("VESPA_ANN_TARGET_HITS", "100"))
+EMBEDDING_MODEL = os.getenv("VESPA_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+EMBEDDING_DEVICE = os.getenv("VESPA_EMBEDDING_DEVICE")
+VESPA_HTTP_CONNECTIONS = int(os.getenv("VESPA_HTTP_CONNECTIONS", "1"))
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+_vespa_session: VespaSync | None = None
 
 
 @lru_cache
@@ -46,6 +53,26 @@ def get_vespa_client() -> Vespa:
     url = os.getenv("VESPA_URL", "http://localhost")
     port = int(os.getenv("VESPA_PORT", "8080"))
     return Vespa(url=url, port=port)
+
+
+def get_vespa_session() -> VespaSync:
+    """Return a cached VespaSync session so HTTP connections are reused."""
+    global _vespa_session
+    if _vespa_session is not None:
+        return _vespa_session
+
+    session = get_vespa_client().syncio(connections=VESPA_HTTP_CONNECTIONS)
+    _vespa_session = session.__enter__()
+    return _vespa_session
+
+
+def close_vespa_session() -> None:
+    """Close the cached Vespa session, if it exists."""
+    global _vespa_session
+    if _vespa_session is None:
+        return
+    _vespa_session.__exit__(None, None, None)
+    _vespa_session = None
 
 
 def _resolve_limit(candidate: int | None) -> int:
@@ -63,20 +90,31 @@ def run_vespa_query(
 ) -> Dict[str, Any]:
     """Execute the Vespa search using the provided query string."""
     effective_limit = _resolve_limit(limit)
-    ranking_profile = ranking or DEFAULT_RANKING_PROFILE
-    client = get_vespa_client()
+    ranking_profile = _normalize_ranking(ranking)
+    include_semantic = ranking_profile in RANKINGS_REQUIRING_EMBEDDING
+    query_embedding: list[float] | None = None
+    if include_semantic:
+        query_embedding = _encode_query(query)
+
     query_body = {
-        "yql": "select * from sources * where userQuery()",
+        "yql": _build_yql(ranking_profile, include_semantic, effective_limit),
         "hits": effective_limit,
         "query": query,
         "ranking": {"profile": ranking_profile},
         "presentation": {"timing": True},
     }
-    with client.syncio(connections=1) as session:
-        response = session.query(body=query_body)
+    if query_embedding is not None:
+        query_body["ranking"]["features"] = {"query(q)": query_embedding}
+        query_body["input.query(q)"] = query_embedding
+
+    print(query_body)
+
+    session = get_vespa_session()
+    response = session.query(body=query_body)
 
     response_json = _safe_json(response)
-    print(response_json)  # Debug output
+    print(response_json)
+    # print(response_json)  # Debug output
     root = response_json.get("root", {}) or {}
     hits = getattr(response, "hits", []) or []
     formatted_hits = [_format_hit(hit) for hit in hits]
@@ -161,17 +199,53 @@ def _normalize_document_id(document_id: Any) -> str | None:
     return document_id
 
 
+def _normalize_ranking(candidate: str | None) -> str:
+    if candidate in KNOWN_RANKING_VALUES:
+        return candidate
+    lower_candidate = candidate.lower() if isinstance(candidate, str) else None
+    if lower_candidate in KNOWN_RANKING_VALUES:
+        return lower_candidate
+    return DEFAULT_RANKING_PROFILE
+
+
+def _build_yql(ranking_profile: str, include_semantic: bool, limit: int) -> str:
+    if not include_semantic:
+        return "select * from sources * where userQuery()"
+
+    target_hits = max(limit * 5, ANN_TARGET_HITS)
+    nn_clause = f'[{{"targetHits": {target_hits}}}]nearestNeighbor(text_embedding, q)'
+    if ranking_profile == "semantic":
+        return f"select * from sources * where {nn_clause}"
+    return "select * from sources * where (userQuery() or " f"({nn_clause}))"
+
+
+@lru_cache
+def _get_encoder() -> SentenceTransformer:
+    init_kwargs = {"device": EMBEDDING_DEVICE} if EMBEDDING_DEVICE else {}
+    return SentenceTransformer(EMBEDDING_MODEL, **init_kwargs)
+
+
+def _encode_query(query: str) -> list[float]:
+    encoder = _get_encoder()
+    vector = encoder.encode(query, convert_to_numpy=True)
+    return vector.tolist()
+
+
 @lru_cache
 def get_total_documents() -> int | None:
     """Fetch total number of indexed documents (cached)."""
-    client = get_vespa_client()
     try:
-        with client.syncio(connections=1) as session:
-            response = session.query(
-                yql="select * from sources * where true limit 0",
-                hits=0,
-                ranking=DEFAULT_RANKING_PROFILE,
-            )
+        ranking_profile = (
+            DEFAULT_RANKING_PROFILE
+            if DEFAULT_RANKING_PROFILE not in RANKINGS_REQUIRING_EMBEDDING
+            else "bm25"
+        )
+        session = get_vespa_session()
+        response = session.query(
+            yql="select * from sources * where true limit 0",
+            hits=0,
+            ranking=ranking_profile,
+        )
         data = _safe_json(response)
         root = data.get("root", {}) or {}
         fields = root.get("fields", {}) or {}
@@ -212,3 +286,13 @@ async def search(request: SearchRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return payload
+
+
+@app.on_event("startup")
+async def _startup_event() -> None:
+    get_vespa_session()
+
+
+@app.on_event("shutdown")
+async def _shutdown_event() -> None:
+    close_vespa_session()

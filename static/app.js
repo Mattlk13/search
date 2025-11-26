@@ -21,7 +21,7 @@ document.addEventListener("DOMContentLoaded", () => {
     resultsEl.innerHTML = "";
 
     if (!hits.length) {
-      resultsEl.innerHTML = "<p class='status'>No results yet. Try a different query.</p>";
+      resultsEl.innerHTML = "<p class='status'>No results yet. Try a different query or ranking mode.</p>";
       return;
     }
 
@@ -86,7 +86,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!response.ok) {
         throw new Error(payload.detail || "Search failed");
       }
-      renderStatus(`Showing ${payload.returned} of ${payload.total_available} results`);
+      const profileSuffix = payload.ranking_profile ? ` with ${payload.ranking_profile}` : "";
+      renderStatus(`Showing ${payload.returned} of ${payload.total_available} results${profileSuffix}`);
       if (limitInput && typeof payload.limit === "number") {
         limitInput.value = payload.limit;
       }

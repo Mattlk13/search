@@ -1,0 +1,71 @@
+schema doc {
+    document doc {
+        field id type string {
+            indexing: summary
+        }
+        field text type string {
+            indexing: index | summary
+            index: enable-bm25
+        }
+        field url type string {
+            indexing: index | summary
+            index: enable-bm25
+        }
+        field text_embedding type tensor(x[384]) {
+            indexing: index | attribute
+            attribute {
+                distance-metric: angular
+            }
+            index {
+                hnsw {
+                    max-links-per-node: 16
+                    neighbors-to-explore-at-insert: 200
+                }
+            }
+        }
+    }
+    fieldset default {
+        fields: text, url
+    }
+    rank-profile bm25 {
+        inputs {
+            query(q) 
+        }
+        function bm25texturl() {
+            expression {
+                bm25(text) + 0.1 * bm25(url)
+            }
+        }
+        first-phase {
+            expression {
+                bm25texturl
+            }
+        }
+    }
+    rank-profile semantic {
+        inputs {
+            query(q) tensor(x[384])
+        }
+        first-phase {
+            expression {
+                closeness(field, text_embedding)
+            }
+        }
+    }
+    rank-profile fusion inherits bm25 {
+        inputs {
+            query(q) tensor(x[384])
+        }
+        first-phase {
+            expression {
+                closeness(field, text_embedding)
+            }
+        }
+        global-phase {
+            expression {
+                reciprocal_rank_fusion(bm25texturl, closeness(field, text_embedding))
+            }
+            rerank-count: 1000
+        }
+    }
+}
