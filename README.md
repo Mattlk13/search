@@ -1,112 +1,68 @@
-# Simple Search
+# Hybrid Search
 
-A lightweight full-text search application powered by Vespa and FastAPI. This project demonstrates building a web-scale search engine from scratch.
+Vespa + FastAPI demo that now covers both lexical BM25 and dense semantic retrieval with a hybrid (RRF) ranking option.
 
-## Overview
+## Tutorial Series
+- Part 1: Set up Vespa search engine, ingest data, and query via curl (https://www.youtube.com/watch?v=lfoOtjLhKh8)
+- Part 2: Build an interactive web UI with FastAPI and modern frontend (https://www.youtube.com/watch?v=83k0gnqxE_s)
+- Part 3: A no nonsense, applied intro to BM25 (https://www.youtube.com/watch?v=TW9vHU1GpU4)
+- Part 4: Hybrid search (lexical + dense) (https://www.youtube.com/watch?v=BXvCxG_H31M)
 
-This is a multi-part tutorial series:
+More coming soon!
 
-- **Part 1**: Set up Vespa search engine, ingest data, and query via curl (https://www.youtube.com/watch?v=lfoOtjLhKh8)
-- **Part 2**: Build an interactive web UI with FastAPI and modern frontend (https://www.youtube.com/watch?v=83k0gnqxE_s)
-- **Part 3**: A no nonsense, applied intro to BM25 (https://www.youtube.com/watch?v=TW9vHU1GpU4)
-- More coming soon
+Questions or requests? Open a GitHub issue.
 
-
-Something you dont understand? You have a request? Please create a github issue `:)
-`
-
+## What’s Included
+- `bm25.py`: Vespa application package with multiple BM25 rank profiles for lexical experiments.
+- `hybrid.py`: Vespa package with BM25 + HNSW vectors and three rank profiles (`bm25`, `semantic`, `fusion` using reciprocal rank fusion).
+- `feed.py`: Deploys the hybrid package to a local Vespa Docker container, writes the app to `./vespa_app_hybrid`, encodes documents with `all-MiniLM-L6-v2`, and streams FineWeb into Vespa.
+- `ui.py` + `templates/` + `static/`: FastAPI-powered UI that lets you pick ranking modes and handles query embedding for semantic/hybrid searches.
 
 ## Prerequisites
-
-- Python 3.10 or higher
+- Python 3.10+
 - Docker or Podman (for Vespa deployment)
 - [uv](https://docs.astral.sh/uv/) package manager (recommended)
+- Network access to pull HuggingFace FineWeb and the SentenceTransformer model
 
-## Installation
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd search
-```
-
-2. Install dependencies using uv:
+## Install Dependencies
 ```bash
 uv sync
 ```
 
-## Part 1: Building the Search Backend
-
-### Step 1: Deploy Vespa and Ingest Data
-
-Run [main.py](main.py) to set up the Vespa search engine with a BM25 ranking profile and ingest documents:
-
+## Deploy Vespa and Ingest Data
+This launches a Vespa container with 8 GB memory, writes the Vespa app files to `vespa_app_hybrid/`, and streams FineWeb with on-the-fly embeddings.
 ```bash
-python main.py
+python feed.py
 ```
+Notes:
+- Dataset: `HuggingFaceFW/fineweb` split `CC-MAIN-2025-08` (streaming).
+- Embeddings: `all-MiniLM-L6-v2` (uses `mps` on Apple Silicon by default).
+- Stop with `Ctrl+C` once you have enough documents indexed.
 
-This script will:
-1. Create a Vespa application package with a custom schema
-2. Deploy Vespa in a local Docker/Podman container
-3. Load documents from the FineWeb dataset
-4. Feed documents into Vespa with progress tracking
-
-### Step 2: Test with curl
-
-Once the data is ingested, query the search engine directly:
-
+## Query Vespa via curl (BM25)
 ```bash
 curl -X POST http://localhost:8080/search/ \
   -H "Content-Type: application/json" \
   -d '{
     "yql": "select * from sources * where userQuery() limit 10",
     "query": "python programming",
-    "ranking": "bm25"
+    "ranking": {"profile": "bm25"}
   }'
 ```
 
-**Query Parameters:**
-- `yql`: Vespa Query Language statement
-- `query`: Your search terms
-- `ranking`: Ranking profile to use (configured as "bm25")
-
-## Part 2: Building the Web UI
-
-### Architecture
-
-The web interface consists of:
-
-- **Backend** ([ui.py](ui.py)): FastAPI application with search endpoint
-- **Frontend**: HTML/CSS/JS with modern design
-  - [templates/index.html](templates/index.html): Main page structure
-  - [static/styles.css](static/styles.css): Dark theme styling with gradients
-  - [static/app.js](static/app.js): Search logic and result rendering
-
-### Running the UI
-
+## Run the UI (hybrid/semantic/BM25)
 Start the FastAPI server:
-
 ```bash
 uvicorn ui:app --reload
 ```
+Open http://localhost:8000 and choose a ranking mode:
+- `fusion`: hybrid RRF over BM25 + ANN semantic scores
+- `semantic`: dense vector only
+- `bm25`: lexical only
 
-Then open your browser to:
-```
-http://localhost:8000
-```
-
-### Configuration
-
-Environment variables (optional):
-
-```bash
-export VESPA_URL="http://localhost"        # Vespa host URL
-export VESPA_PORT="8080"                   # Vespa port
-export VESPA_RESULT_LIMIT="10"             # Default results per page
-export VESPA_MAX_RESULT_LIMIT="100"        # Maximum allowed results
-```
 
 ## Resources
-
-- [Vespa](https://vespa.ai/) for the search infrastructure
-- [HuggingFace FineWeb](https://huggingface.co/datasets/HuggingFaceFW/fineweb) for the dataset
+- [Vespa](https://vespa.ai/)
+- [pyvespa](https://github.com/vespa-engine/pyvespa)
+- [HuggingFace FineWeb](https://huggingface.co/datasets/HuggingFaceFW/fineweb)
+- [sentence-transformers](https://www.sbert.net/)
